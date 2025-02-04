@@ -1,0 +1,89 @@
+---
+title: "TidyTuesdayJan27"
+format: html
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(tidytuesdayR)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(scales) # for commas
+```
+
+```{r}
+expeditions <- read_csv("~/Desktop/exped_tidy.csv")
+peaks <- read_csv("~/Desktop/peaks_tidy.csv")
+expeditions$LEADERS <- replace(expeditions$LEADERS, expeditions$LEADERS == "Kristn Harila", "Kristin Harila") # a little typo in the data
+```
+
+```{r}
+View(expeditions)
+View(peaks)
+```
+
+Leaders -- need to separate into different cases (separation = ", ")
+Successes = IF Success\d == TRUE (or the fancy if (success))
+totalRope = sum(ROPE), put as dodged? or text above?
+totalHeight = sum(HIGHPOINT) of successes
+totalExpeds = sum(n())
+
+Nation Segments
+- want proportions of expeditions done in nations
+  - get total num from grouping both, get individual nums from just grouping leaders
+- put flags into each segment (either just top or bottom portion of flag based on proportion of how many, 50% = 50% of flag shown OR flag squished)
+  - get rid of the legend: + theme(legend.position = "none")
+
+```{r}
+expeditionsLong <- expeditions %>%
+  select(contains("SUCCESS"), HIGHPOINT, LEADERS, NATION) %>%
+  pivot_longer(cols = contains("SUCCESS"), names_to = "Successes", values_to = "values") %>%
+  filter(values) %>% # just want if actually succeeded
+  separate_rows(LEADERS, sep = ", ") # making leaders separate rows with the same info
+```
+
+
+```{r, fig.width=9, fig.height=5}
+# library(ggpattern)
+# 
+# flag_mapping <- data.frame(
+#   NATION = c("Nepal", "USA", "UK", "China", "Italy", "Norway"),
+#   flagImage = c("flags/NepalFlag.png", "flags/USAFlag.png", "flags/UKFlag.png", "flags/ChinaFlag.png", "flags/ItalyFlag", "flags/NorwayFlag")
+# )
+
+nationProps <- expeditionsLong %>% # getting props for each nation
+  group_by(LEADERS, NATION) %>%
+  summarize(totalNationHeight = sum(HIGHPOINT)) %>%
+  group_by(LEADERS) %>% # taking a step back, calculating each nation individually
+  mutate(nationProp = totalNationHeight / sum(totalNationHeight))
+
+expeditionsLong %>%
+  group_by(LEADERS) %>% 
+  summarize(totalHeight = sum(HIGHPOINT), totalExpeds = sum(n())) %>%
+  mutate(rank = dense_rank(-totalHeight)) %>% # from 6 Main Verbs HW
+  filter(rank <= 6) %>%
+  left_join(nationProps, by = "LEADERS") %>%
+  mutate(segmentCount = nationProp * totalHeight) %>% # from prop --> count
+  ggplot(aes(x = reorder(LEADERS, -totalHeight), y = segmentCount, fill = NATION)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(y = totalHeight, label = paste0(totalExpeds, " Expeditions")), 
+              vjust = -0.7, size = 3
+             ) + 
+    labs(title = "Top 5 Expedition Leaders by Total Height Summited (Stacked by Nation)",
+         x = "Leaders",
+         y = "Total Height Summited (m)",
+         fill = "Nation"
+         ) +
+    scale_y_continuous(labels = comma) +
+    theme_classic()
+  
+# Annotations at top: {num expeditions}, Success rate = {rate}
+```
