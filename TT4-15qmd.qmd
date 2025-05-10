@@ -1,0 +1,164 @@
+---
+title: "TT4-15"
+format: html
+---
+
+```{r}
+library(tidytuesdayR)
+library(tidyverse)
+library(ggplot2)
+library(naniar)
+library(mice)
+penguins <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-04-15/penguins.csv')
+
+penguins <- penguins %>%
+   mutate(NA_count = rowSums(is.na(.))) %>%
+   filter(NA_count < 2) %>% # getting rid of rows that only have species and island 
+   select(-NA_count)
+```
+```{r}
+# View(penguins)
+```
+
+# Missigness Exploration
+```{r}
+naniar::vis_miss(penguins)
+
+penguinsLongNum <- penguins %>%
+  pivot_longer(cols = where(is.numeric), values_to = "Value", names_to = "candidates")
+
+# View(penguinsLongNum)
+penguinsLongNum %>%
+  ggplot(aes(x = is.na(sex), y = Value)) + 
+    geom_boxplot() +
+    facet_wrap(~ candidates, scale = "free")
+
+penguinsLongNum %>%
+  ggplot(aes(x = Value, y = sex, color = sex)) +
+    geom_point(alpha = 0.2) +
+    geom_vline(data = penguinsLongNum %>% filter(is.na(sex)), mapping = aes(xintercept = Value)) + 
+    facet_wrap(~ candidates, scale = "free")
+
+penguins %>%
+  mutate(across(where(~ !is.numeric(.)), ~ as.factor(.))) %>%
+  pivot_longer(cols = c(where(is.factor), -sex), values_to = "Value", names_to = "candidates") %>%
+  ggplot(aes(x = is.na(sex), y = Value, color = Value)) + 
+    geom_bar(stat = "identity") +
+    facet_wrap(~ candidates, scale = "free")
+
+penguinsLongNum %>%
+  filter(species != "Chinstrap") %>%
+  ggplot(aes(x = Value, y = sex, color = species)) +
+    geom_point(alpha = 0.5) +
+    geom_vline(data = penguinsLongNum %>% filter(is.na(sex)), mapping = aes(xintercept = Value)) + 
+    facet_wrap(~ candidates, scale = "free")
+```
+
+# More Missigness-- From Class Notes
+```{r}
+library(mice)
+penguinsMice <- penguins %>%
+  mutate(across(where(~ !is.numeric(.)), ~ as.factor(.))) %>%
+  select(sex, species, bill_len, bill_dep, flipper_len, body_mass)
+
+make.method(penguinsMice)
+
+ci_list <- vector("list")
+
+# Multiple imputation -------------
+mice(penguinsMice, m = 10, method = "pmm", printFlag = FALSE) # m = 10 is similar to CV, create 10 different datasets and combine info. across 
+mi_mods <- with(mice_obj, lm(body_mass ~  bill_len + bill_dep + flipper_len + sex))
+pooled_res <- pool(mi_mods)
+summ_pooled_res <- summary(pooled_res, conf.int = TRUE, conf.level = 0.95)
+ci_multiple_lower <- summ_pooled_res %>% filter(term=="sex") %>% pull(`2.5 %`)
+ci_multiple_upper <- summ_pooled_res %>% filter(term=="sex") %>% pull(`97.5 %`)
+
+# Store CI information
+ci_list <- tibble(
+    ci_lower = c(
+        ci_multiple_lower
+    ),
+    ci_upper = c(
+        ci_multiple_upper
+    ),
+    which_imp = c("multiple")
+)
+
+ci_data <- bind_rows(ci_list)
+ci_data %>% 
+    mutate(contains_truth = ci_lower < 1 & ci_upper > 1) %>% 
+    group_by(which_imp) %>% 
+    summarize(frac_contains_truth = mean(contains_truth))
+```
+
+```{r}
+penguinsFacet <- penguins %>%
+  pivot_longer(cols = bill_len:body_mass, names_to = "Measures", values_to = "Value")
+
+penguinsFacet %>%
+  ggplot(aes(x = Value, y = island, color = species, shape = sex)) +
+    geom_jitter(height = 0.1, width=0.01, size=1.5) +
+    facet_wrap(~ Measures, scales = "free_x")
+```
+
+```{r}
+penguins %>%
+  ggplot(aes(x = body_mass, y = island, color = species, shape = sex)) +
+    geom_jitter(height = 0.1, width=0.01, size=1.5)
+```
+
+```{r, fig.height=5, fig.width=8, fig.retina=3}
+penguins %>%
+  ggplot(aes(x = flipper_len, y = island, color = species, shape = sex)) +
+    geom_jitter(height = 0.1, width=0.01, size=1.5)
+
+penguinsFacet %>%
+  ggplot(aes(x = Value, y = island, color = species, shape = sex)) +
+    geom_jitter(height = 0.1, width=0.01, size=1.5) +
+    facet_wrap(~ Measures, scales = "free_x")
+```
+
+```{r}
+upperCaseFirstLetter <- function(x) {
+  substr(x, 1, 1) <- toupper(substr(x, 1, 1))
+  x
+}
+
+sexLetters <- unique(na.omit(str_sub(upperCaseFirstLetter(penguinsFacet$sex), 1, 1)))
+sexShapeMap <- setNames(sapply(sexLetters, utf8ToInt), sexLetters)
+
+plot <- penguinsFacet %>%
+  mutate(
+    Measures = case_when(
+      Measures == "bill_dep" ~ "Bill Depth",
+      Measures == "bill_len" ~ "Bill Length",
+      Measures == "body_mass" ~ "Body Mass",
+      Measures == "flipper_len" ~ "Flipper Length"
+    ),
+    sex = upperCaseFirstLetter(sex),
+    sexLetter = str_sub(sex, 1, 1)
+  ) %>%
+  filter(!is.na(sex)) %>%
+  rename(Species = species, Island = island) %>%
+  group_by(Measures, Island, Species, Sex = sexLetter) %>%
+  summarize(Value = mean(Value), n = n(), .groups = "drop") %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = Value, y = Island, color = Species, shape = Sex, size = prop)) +
+    geom_point(size = 3) +
+    scale_shape_manual(values = sexShapeMap, labels = c(F = "Female", M = "Male")) +
+    ggtitle("Summary of Penguin Features by Species, Sex, and Island") + 
+    facet_wrap(~Measures, scales = "free_x")
+    # theme_bw()
+
+ggsave(plot, 
+       filename = "penguinsPlot.jpg",
+       device = "jpg",
+       height = 4, width = 6, units = "in")
+```
+
+```{r}
+penguins %>%
+  group_by(island, species,  sex) %>%
+  summarize(n = n()) %>%
+  mutate(prop = n / sum(n))
+```

@@ -1,0 +1,98 @@
+---
+title: "TT4-26"
+format: html
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(tidytuesdayR)
+library(tidyverse)
+library(ggplot2)
+library(naniar)
+library(lubridate)
+library(ggpubr)
+crashes <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-04-22/daily_accidents_420.csv')
+
+crashes <- crashes %>%
+  group_by(date) %>%
+  summarize(fatalities_count = sum(fatalities_count)) %>% # there were duplicate dates causing some of the numbers to be off, particularly for some of the 4/20 dates
+  mutate(e420 = str_detect(date, "4-20"),
+          year = year(date),
+          month = month(date),
+          day = day(date),
+          dayInYear = yday(date),
+          weekday = wday(date, label = TRUE),
+          leapYear = leap_year(date)
+        )
+
+View(crashes)
+```
+
+```{r}
+crashes %>%
+  filter(e420)  %>%
+  group_by(weekday, e420) %>%
+  summarize(meanCount = mean(fatalities_count), n = n(), max = max(fatalities_count)) %>%
+  ggplot(aes(x = weekday, y = meanCount)) +
+    geom_col()
+  
+crashes %>%
+  group_by(weekday, e420) %>%
+  summarize(meanCount = mean(fatalities_count), n = n(), max = max(fatalities_count)) %>% 
+  ggplot(aes(x = weekday, y = meanCount)) +
+    geom_col() +
+    facet_wrap(~ e420)
+
+class(crashes$month_day)
+# look at differences between holidays and 420
+crashes %>% 
+  ggplot(aes(x = dayInYear, y = fatalities_count)) +
+    geom_line() +  # or geom_point(), etc.
+    facet_wrap(~year, scales = "free_y") +  # or scales = "fixed" if you want same y-axis
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, warning=FALSE}
+# dateFind <- "03-17"
+makeBeforeAfterPlot <- function(dateFind) {
+  dateNumber <- crashes %>% filter(str_detect(date, dateFind) & !leapYear) %>% select(dayInYear) %>% slice(1) %>% as.numeric()
+  dateNumber
+  crashes %>%
+    filter(!leapYear) %>%
+    mutate(daysSurrounding = case_when(
+      dayInYear == dateNumber - 1 ~ str_c("Day Before ", dateFind), 
+      dayInYear == dateNumber ~ dateFind, 
+      dayInYear == dateNumber + 1 ~ str_c("Day After ", dateFind), 
+      TRUE ~ NA_character_
+      ),
+      daysSurrounding = fct_relevel(daysSurrounding, c(str_c("Day Before ", dateFind), dateFind, str_c("Day After ", dateFind)))
+    ) %>% 
+    filter(!is.na(daysSurrounding)) %>% 
+    group_by(daysSurrounding, weekday) %>% 
+    summarize(meanCount = mean(fatalities_count), n = n(), max = max(fatalities_count)) %>% 
+    ggplot(aes(x = weekday, y = meanCount, fill = weekday, group = 1)) +
+      geom_col() +
+      geom_smooth(method = "loess", se = FALSE, color = "tomato", size = 2) +
+      labs(x = "Weekday", y = "Crashes") + 
+      scale_fill_brewer(palette = "Pastel1") + 
+      facet_wrap(~ daysSurrounding) + 
+      theme(strip.text = element_text(size = 10.2))
+}
+plot1 <- makeBeforeAfterPlot("04-20")
+plot2 <- makeBeforeAfterPlot("12-25")
+plot3 <- makeBeforeAfterPlot("03-17")
+
+combined <- ggarrange(plot1, plot2, plot3, ncol = 1, nrow = 3, align = "hv", common.legend = TRUE, legend = "none")
+annotate_figure(combined,
+                top = text_grob("Avg. # of Fatal Crashes by the Weekdays Holidays Land on Compared to Days Around", 
+                                face = "bold", size = 12))
+```
+
