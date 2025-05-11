@@ -151,8 +151,8 @@ plot <- penguinsFacet %>%
     # theme_bw()
 
 ggsave(plot, 
-       filename = "penguinsPlot.jpg",
-       device = "jpg",
+       filename = "penguinsPlot.png",
+       device = "png",
        height = 4, width = 6, units = "in")
 ```
 

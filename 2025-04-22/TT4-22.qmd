@@ -35,7 +35,7 @@ crashes <- crashes %>%
 # View(crashes)
 ```
 
-```{r}
+```{r, echo=FALSE}
 crashes %>%
   filter(e420)  %>%
   group_by(weekday, e420) %>%
@@ -91,8 +91,12 @@ plot2 <- makeBeforeAfterPlot("12-25")
 plot3 <- makeBeforeAfterPlot("03-17")
 
 combined <- ggarrange(plot1, plot2, plot3, ncol = 1, nrow = 3, align = "hv", common.legend = TRUE, legend = "none")
-annotate_figure(combined,
+total <- annotate_figure(combined,
                 top = text_grob("Avg. # of Fatal Crashes by the Weekdays Holidays Land on Compared to Days Around", 
                                 face = "bold", size = 12))
+ggsave(total, 
+       filename = "holidayCrashes.png",
+       device = "png",
+       height = 5, width = 8, units = "in")
 ```
 
