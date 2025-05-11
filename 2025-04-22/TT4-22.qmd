@@ -32,7 +32,7 @@ crashes <- crashes %>%
           leapYear = leap_year(date)
         )
 
-View(crashes)
+# View(crashes)
 ```
 
 ```{r}
